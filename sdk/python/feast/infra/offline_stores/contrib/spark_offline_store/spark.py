@@ -338,7 +338,16 @@ class SparkRetrievalJob(RetrievalJob):
 
     def _to_df_internal(self) -> pd.DataFrame:
         """Return dataset as Pandas DataFrame synchronously"""
-        return self.to_spark_df().toPandas()
+        hdfs = pyarrow.hdfs.connect()
+        user = hdfs.info('.')['owner']
+        hdfs_dir = f'hdfs://npay/user/{user}/.Trash/Current/Spark2RetrievalJob_{uuid.uuid4()}.parquet'
+        self.to_spark_df().coalesce(100).write.mode('overwrite').parquet(hdfs_dir)
+        hdfs_file_paths = hdfs.ls(hdfs_dir)
+        with tempfile.TemporaryDirectory() as data_dir:
+            for hdfs_path in hdfs_file_paths:
+                local_path = os.path.join(data_dir, os.path.split(hdfs_path)[-1])
+                hdfs.download(hdfs_path, local_path)
+            return pd.read_parquet(data_dir)
 
     def _to_arrow_internal(self) -> pyarrow.Table:
         """Return dataset as pyarrow Table synchronously"""
